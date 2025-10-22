@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>NZ Defence-Industry Map — Sheets-backed</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin=""/>
+  <style>
+    html, body { height: 100%; margin: 0; }
+    #map { height: 100%; }
+    .legend {
+      position: absolute; bottom: 12px; left: 12px; background: white; 
+      padding: 8px 10px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,.15);
+      font: 12px/1.35 system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+      max-width: 280px;
+    }
+    .legend b { display:block; margin-bottom: 4px; }
+    .legend .muted { color: #666; }
+    .popup h3 { margin: 0 0 6px 0; font-size: 1rem; }
+    .popup ul { margin: 6px 0; padding-left: 18px; }
+    .notice {
+      position: absolute; top: 10px; left: 50%; transform: translateX(-50%);
+      background: #111; color: #fff; padding: 6px 10px; border-radius: 999px; font: 12px system-ui;
+      opacity: .85;
+    }
+    .ctrl {
+      position: absolute; top: 12px; left: 12px; z-index: 500;
+      background: white; padding: 8px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,.15);
+      font: 12px/1.35 system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+      display: flex; gap: 6px; align-items: center;
+    }
+    .ctrl input[type='text'] { padding: 5px 8px; border: 1px solid #ccc; border-radius: 6px; min-width: 180px; }
+    .ctrl button { padding: 6px 10px; border: 0; border-radius: 6px; background: #0d6efd; color: white; cursor: pointer; }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+  <div class="ctrl">
+    <input id="search" type="text" placeholder="Filter by city, company, or category…" aria-label="Filter markers">
+    <button id="clear">Clear</button>
+  </div>
+  <div class="legend">
+    <b>NZ Defence-Industry (Sheets‑backed)</b>
+    <div class="muted">Data loads from a published Google Sheet (CSV).</div>
+    <div>Tap markers to view company, capability & link. Marker colors by <i>category</i>.</div>
+    <div class="muted" style="margin-top:6px">Disclaimer: locations may be approximate while sites are verified.</div>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+  <script>
+    // TODO: replace with your published Google Sheet CSV URL (gviz out:csv or Publish-to-web link)
+    const CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRInRJ-k6PPnkTvP0dwO_Rh0WH5CqIgfSYF1zT5KBXY2Scd0ARkHMusJ_LvhxixaRWhqpvS5pFQqBTv/pub?gid=0&single=true&output=csv";
+
+    // Basic category -> color mapping
+    const CAT_COLORS = {
+      "Naval sustainment": "#1f77b4",
+      "Marine propulsion": "#2ca02c",
+      "Boatbuilding": "#17becf",
+      "Comms & radios": "#9467bd",
+      "Aerospace/space": "#ff7f0e",
+      "Munitions": "#d62728",
+      "Simulation/training": "#8c564b",
+      "Other": "#7f7f7f"
+    };
+
+    // Map init (NZ bounds & OSM tiles)
+    const map = L.map('map', { zoomControl: true }).setView([-41.2, 173.0], 5);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '&copy; OpenStreetMap contributors'
+    }).addTo(map);
+
+    const markersLayer = L.layerGroup().addTo(map);
+    let rows = [];
+    let markers = [];
+
+    function colorFor(cat) {
+      return CAT_COLORS[cat] || CAT_COLORS["Other"];
+    }
+
+    function makeMarker(r) {
+      const lat = parseFloat(r.lat), lng = parseFloat(r.lng);
+      if (isNaN(lat) || isNaN(lng)) return null;
+
+      const icon = L.divIcon({
+        className: "custom-marker",
+        html: `<span style="
+          display:inline-block;width:14px;height:14px;border-radius:50%;
+          background:${colorFor(r.category)};border:2px solid white;box-shadow:0 0 0 1px rgba(0,0,0,.35);"></span>`,
+        iconSize: [14, 14],
+        iconAnchor: [7, 7],
+      });
+
+      const title = r.company || "Untitled";
+      const link = r.website ? `<a href="${r.website}" target="_blank" rel="noopener">${title}</a>` : title;
+      const city = r.city ? `<div><b>${r.city}</b></div>` : "";
+      const address = r.address ? `<div>${r.address}</div>` : "";
+      const capability = r.capability ? `<div>${r.capability}</div>` : "";
+      const cat = r.category ? `<div style="margin-top:4px"><i>${r.category}</i></div>` : "";
+
+      const html = `<div class="popup">
+        <h3>${link}</h3>
+        ${city}
+        ${address}
+        ${capability}
+        ${cat}
+      </div>`;
+
+      const m = L.marker([lat, lng], { icon }).bindPopup(html);
+      m._search_text = [
+        (r.city||"").toLowerCase(),
+        (r.company||"").toLowerCase(),
+        (r.category||"").toLowerCase(),
+        (r.capability||"").toLowerCase()
+      ].join(" ");
+      return m;
+    }
+
+    function render() {
+      markersLayer.clearLayers();
+      markers = rows.map(r => makeMarker(r)).filter(Boolean);
+      markers.forEach(m => markersLayer.addLayer(m));
+    }
+
+    function applyFilter(q) {
+      const term = (q||"").trim().toLowerCase();
+      markers.forEach(m => {
+        const match = !term || (m._search_text && m._search_text.includes(term));
+        if (match) { markersLayer.addLayer(m); }
+        else { markersLayer.removeLayer(m); }
+      });
+    }
+
+    document.getElementById("clear").addEventListener("click", () => {
+      const input = document.getElementById("search");
+      input.value = "";
+      applyFilter("");
+    });
+
+    document.getElementById("search").addEventListener("input", (e) => {
+      applyFilter(e.target.value);
+    });
+
+    // Load CSV
+    function loadCSV() {
+      const cacheBuster = Date.now();
+      Papa.parse(CSV_URL + (CSV_URL.includes("?") ? "&" : "?") + "_=" + cacheBuster, {
+        download: true,
+        header: true,
+        skipEmptyLines: true,
+        complete: (res) => {
+          rows = res.data.map(r => ({
+            id: r.id || "",
+            city: r.city || "",
+            address: r.address || "",
+            company: r.company || "",
+            capability: r.capability || "",
+            website: r.website || "",
+            category: r.category || "Other",
+            lat: r.lat || "",
+            lng: r.lng || ""
+          }));
+          render();
+        },
+        error: (err) => {
+          const note = document.createElement("div");
+          note.className = "notice";
+          note.textContent = "Failed to load CSV. Check your published Sheet URL.";
+          document.body.appendChild(note);
+          console.error(err);
+        }
+      });
+    }
+
+    loadCSV();
+  </script>
+</body>
+</html>
