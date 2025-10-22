@@ -5,8 +5,10 @@
 **Last updated:** 2025-10-22
 
 ## NZ_mil (proof of concept)
-Explorations &amp; visualisations of materiel & dual-use products produced in Aotearoa. Try it out [here!](https://storage.googleapis.com/web-visualisations/NZ_mil/nz_defence_industry_sheets_map.html)
+Explorations &amp; visualisations of materiel & dual-use products produced in Aotearoa. 
 - Uses Google Sheets as a headless CMS
+
+ # **Try it out [here!](https://storage.googleapis.com/web-visualisations/NZ_mil/nz_defence_industry_map_v3.html)**
 
 ---
 
@@ -20,12 +22,14 @@ Static hosting is on **Google Cloud Storage (GCS)** under the existing *web‑vi
 - Quickly see geographic spread and **who does what** (naval sustainment, radios, munitions, etc.).
 - Click through to **official company sites** from popups.
 - **Low‑friction updates**: add a row in Sheets → coordinates are auto‑filled → page reflects new data.
+- I just wanted to experiment with using **Google Sheets as a headless CMS**, okay!?
 
 ---
 
-## Live URLs (fill these in)
+## Live URLs
 
-- **Public page:** [https://storage.googleapis.com/web-visualisations/NZ_mil/nz_defence_industry_sheets_map.html](https://storage.googleapis.com/web-visualisations/NZ_mil/nz_defence_industry_sheets_map.html)  
+- **Public page v1:** [https://storage.googleapis.com/web-visualisations/NZ_mil/nz_defence_industry_sheets_map.html](https://storage.googleapis.com/web-visualisations/NZ_mil/nz_defence_industry_sheets_map.html)
+- **Public page v3:** [https://storage.googleapis.com/web-visualisations/NZ_mil/nz_defence_industry_sheets_map.html](https://storage.googleapis.com/web-visualisations/NZ_mil/nz_defence_industry_map_v3.html)  
 - **Google Sheet (view‑only):** [https://docs.google.com/spreadsheets/d/1XI7fWf5Xc9EshogItq-P6XREqbZr2EGM0W8PYppG5DQ/edit?usp=sharing](https://docs.google.com/spreadsheets/d/1XI7fWf5Xc9EshogItq-P6XREqbZr2EGM0W8PYppG5DQ/edit?usp=sharing)  
 - **CSV export URL used by the page:** [https://docs.google.com/spreadsheets/d/e/2PACX-1vRInRJ-k6PPnkTvP0dwO_Rh0WH5CqIgfSYF1zT5KBXY2Scd0ARkHMusJ_LvhxixaRWhqpvS5pFQqBTv/pub?gid=0&single=true&output=csv](https://docs.google.com/spreadsheets/d/e/2PACX-1vRInRJ-k6PPnkTvP0dwO_Rh0WH5CqIgfSYF1zT5KBXY2Scd0ARkHMusJ_LvhxixaRWhqpvS5pFQqBTv/pub?gid=0&single=true&output=csv)  
  
@@ -143,11 +147,12 @@ gcloud storage buckets update gs://<YOUR_BUCKET>   --web-main-page-suffix=index.
 
 ---
 
-## Troubleshooting
+## Troubleshooting & Caveats
 
-- **Map shows but no markers** → CSV didn’t load (link not public, or opened via `file://`).  
-- **Rows > 0 but Markers = 0** → `lat`/`lng` missing or non‑numeric; re‑run geocoder; check `geocode_status`.  
-- **CSV intermittently unavailable** → Use the `export?format=csv&gid=...` URL or republish the “Publish to web” link.
+- Initial CSVs were generated via GPT-5 web search
+  - LLM was prompted with a goal to search the web
+  - LLM was prompted to output results as a CSV
+  - The current state of LLMs are _not_ ready to perform accurate, trustworthy research 
 
 ---
 
