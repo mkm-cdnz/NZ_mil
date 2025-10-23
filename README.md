@@ -55,43 +55,176 @@ source,verified_on,geocode_status,geocode_source,notes
 Apps Script (Extensions → Apps Script) adds a custom menu **Data → Geocode new rows**. It uses the Maps Service **Geocoder** with `setRegion('nz')` to bias to NZ.
 
 ```gs
+/**
+ * NZ Defence Map — Geocoder
+ * Populates lat/lng + status fields for the 'companies' and 'NZDF' tabs.
+ * Uses Apps Script Maps Service Geocoder with NZ region bias.
+ *
+ * Docs:
+ *  - Menus & onOpen(): https://developers.google.com/apps-script/guides/menus
+ *  - Spreadsheet UI Menu class: https://developers.google.com/apps-script/reference/base/menu
+ *  - Maps Service (Geocoder): https://developers.google.com/apps-script/reference/maps/geocoder
+ *  - Maps Service index: https://developers.google.com/apps-script/reference/maps/
+ *  - Quotas (Geocode calls/day): https://developers.google.com/apps-script/guides/services/quotas
+ */
+
+/** Menu: Data → Geocode (Companies / NZDF / Both) */
 function onOpen() {
-  SpreadsheetApp.getUi().createMenu('Data')
-    .addItem('Geocode new rows', 'geocodeEmptyLatLng')
-    .addToUi();
+  const ui = SpreadsheetApp.getUi();
+  ui.createMenu('Data')
+    .addItem('Geocode: companies', 'geocodeCompanies')
+    .addItem('Geocode: NZDF', 'geocodeNZDF')
+    .addItem('Geocode: both tabs', 'geocodeBothTabs')
+    .addSeparator()
+    .addItem('Re-geocode selected rows (active sheet)', 'geocodeSelectedRows')
+    .addToUi(); // :contentReference[oaicite:1]{index=1}
 }
 
-function geocodeEmptyLatLng() {
-  const sh = SpreadsheetApp.getActive().getSheetByName('companies');
+/** Convenience wrappers */
+function geocodeCompanies()  { geocodeSheet_('companies'); }
+function geocodeNZDF()       { geocodeSheet_('NZDF'); }
+function geocodeBothTabs()   { geocodeSheet_('companies'); geocodeSheet_('NZDF'); }
+
+/**
+ * Re-geocode only the currently selected rows in the active sheet.
+ * Useful if you fixed an address and want to refresh coords/status immediately.
+ */
+function geocodeSelectedRows() {
+  const sh = SpreadsheetApp.getActiveSheet();
+  const range = sh.getActiveRange();
+  if (!range) return;
+  const header = sh.getRange(1,1,1,sh.getLastColumn()).getValues()[0].map(String);
+  const col = (name) => header.indexOf(name);
+
+  const iAddress  = col('address'),   iCity = col('city');
+  const iLat      = col('lat'),       iLng  = col('lng');
+  const iStatus   = col('geocode_status'),  iSrc  = col('geocode_source');
+  const iVerified = col('verified_on');
+
+  if ([iAddress,iCity,iLat,iLng,iStatus,iSrc,iVerified].some(idx => idx < 0)) {
+    SpreadsheetApp.getActive().toast('Missing one or more required columns (address, city, lat, lng, geocode_status, geocode_source, verified_on).', 'Geocode', 8);
+    return;
+  }
+
+  const nzBias = Maps.newGeocoder().setRegion('nz'); // bias to New Zealand :contentReference[oaicite:2]{index=2}
+  const values = sh.getRange(1,1,sh.getLastRow(),sh.getLastColumn()).getValues();
+
+  // Update only the selected rows’ indexes
+  const [r0, , rCount] = [range.getRow(), range.getColumn(), range.getNumRows()];
+  let updated = 0;
+
+  for (let r = r0; r < r0 + rCount; r++) {
+    if (r === 1) continue; // skip header if selected
+    const row = values[r-1];
+    const q = buildQuery_(row[iAddress], row[iCity]);
+    const {lat, lng, status, src} = geocodeOne_(nzBias, q);
+    row[iLat]      = lat || '';
+    row[iLng]      = lng || '';
+    row[iStatus]   = status;
+    row[iSrc]      = src || '';
+    row[iVerified] = new Date();
+    sh.getRange(r, 1, 1, row.length).setValues([row]);
+    updated++;
+  }
+  SpreadsheetApp.getActive().toast(`Re-geocoded ${updated} row(s) in "${sh.getName()}".`, 'Geocode', 6);
+}
+
+/**
+ * Core worker: geocode any sheet by name.
+ * Requirements: columns named exactly:
+ *   'address','city','lat','lng','geocode_status','geocode_source','verified_on'
+ */
+function geocodeSheet_(sheetName) {
+  const ss = SpreadsheetApp.getActive();
+  const sh = ss.getSheetByName(sheetName);
+  if (!sh) {
+    SpreadsheetApp.getActive().toast(`Sheet "${sheetName}" not found.`, 'Geocode', 8);
+    return;
+  }
+
   const values = sh.getDataRange().getValues();
+  if (values.length < 2) {
+    SpreadsheetApp.getActive().toast(`Sheet "${sheetName}" has no data rows.`, 'Geocode', 5);
+    return;
+  }
+
   const header = values[0].map(String);
-  const col = n => header.indexOf(n);
+  const col = (name) => header.indexOf(name);
 
-  const iAddress = col('address'), iCity = col('city');
-  const iLat = col('lat'), iLng = col('lng');
-  const iStatus = col('geocode_status'), iSrc = col('geocode_source'), iVerified = col('verified_on');
+  const iAddress  = col('address'),   iCity = col('city');
+  const iLat      = col('lat'),       iLng  = col('lng');
+  const iStatus   = col('geocode_status'),  iSrc  = col('geocode_source');
+  const iVerified = col('verified_on');
 
-  const g = Maps.newGeocoder().setRegion('nz');
+  if ([iAddress,iCity,iLat,iLng,iStatus,iSrc,iVerified].some(idx => idx < 0)) {
+    SpreadsheetApp.getActive().toast(
+      `Sheet "${sheetName}" is missing one or more required columns (address, city, lat, lng, geocode_status, geocode_source, verified_on).`,
+      'Geocode',
+      10
+    );
+    return;
+  }
 
+  const nzBias = Maps.newGeocoder().setRegion('nz'); // NZ bias for disambiguation :contentReference[oaicite:3]{index=3}
+
+  const out = [];
+  let updated = 0;
   for (let r = 1; r < values.length; r++) {
     const row = values[r];
-    if (!row[iLat] && !row[iLng]) {
-      const q = [row[iAddress], row[iCity], 'New Zealand'].filter(Boolean).join(', ');
-      let lat = '', lng = '', status = 'FAILED', src = '';
-      try {
-        const res = g.geocode(q);
-        if (res && res.results && res.results.length) {
-          lat = res.results[0].geometry.location.lat;
-          lng = res.results[0].geometry.location.lng;
-          status = 'OK'; src = 'google_maps_geocoder';
-        }
-      } catch (e) { status = 'ERROR'; }
-      row[iLat] = lat; row[iLng] = lng;
-      row[iStatus] = status; row[iSrc] = src; row[iVerified] = new Date();
-      sh.getRange(r + 1, 1, 1, row.length).setValues([row]);
+    const latPresent = !!row[iLat];
+    const lngPresent = !!row[iLng];
+    const addressPresent = !!row[iAddress];
+    if ((!latPresent || !lngPresent) && addressPresent) {
+      const q = buildQuery_(row[iAddress], row[iCity]);
+      const {lat, lng, status, src} = geocodeOne_(nzBias, q);
+
+      row[iLat]      = lat || '';
+      row[iLng]      = lng || '';
+      row[iStatus]   = status;
+      row[iSrc]      = src || '';
+      row[iVerified] = new Date();
+
+      out.push({rowIndex: r+1, rowValues: row});
+      updated++;
     }
   }
+
+  // Write back in batches (one row at a time for clarity; still fine at our scale)
+  out.forEach(({rowIndex, rowValues}) => {
+    sh.getRange(rowIndex, 1, 1, rowValues.length).setValues([rowValues]);
+  });
+
+  SpreadsheetApp.getActive().toast(
+    `Geocoded ${updated} new row(s) in "${sheetName}".`,
+    'Geocode',
+    6
+  );
 }
+
+/** Build a human-readable query string for the geocoder. */
+function buildQuery_(address, city) {
+  return [address, city, 'New Zealand'].filter(Boolean).join(', ');
+}
+
+/** One-shot geocode with basic error handling. */
+function geocodeOne_(geocoder, query) {
+  let lat = null, lng = null, status = 'FAILED', src = '';
+  try {
+    const res = geocoder.geocode(query); // Apps Script Maps Service geocoder :contentReference[oaicite:4]{index=4}
+    if (res && res.results && res.results.length) {
+      lat = res.results[0].geometry.location.lat;
+      lng = res.results[0].geometry.location.lng;
+      status = 'OK';
+      src = 'google_maps_geocoder';
+    } else {
+      status = 'ZERO_RESULTS';
+    }
+  } catch (e) {
+    status = 'ERROR';
+  }
+  return {lat, lng, status, src};
+}
+
 ```
 
 > If ever switching to **Nominatim** (OSM), throttle ~**1 req/sec** and include a descriptive User‑Agent per their usage policy.
