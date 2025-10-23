@@ -8,7 +8,7 @@
 Explorations &amp; visualisations of materiel & dual-use products produced in Aotearoa. 
 - Uses Google Sheets as a headless CMS
 
- # **Try it out [here!](https://storage.googleapis.com/web-visualisations/NZ_mil/nz_defence_industry_map_v3.html)**
+ # **Try it out [here!](https://storage.googleapis.com/web-visualisations/NZ_mil/nz_defence_industry_map_v4.html)**
 
 ---
 
