@@ -1,0 +1,580 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>NZ Defence-Industry & NZDF Map (Final)</title>
+
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" />
+<script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+
+<script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+
+<style>
+  html, body { height:100%; margin:0; }
+  #map { height:100%; width:100%; }
+  .ui {
+    position:absolute; z-index: 1100; pointer-events:none;
+    font: 14px/1.3 system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+  }
+  .control-box {
+    pointer-events:auto; background:#fff; border-radius:8px; padding:10px 12px;
+    box-shadow: 0 4px 18px rgba(0,0,0,.18);
+  }
+  /* Search stays clear of zoom buttons */
+  .search { top:10px; left:10px; width: 300px; max-width: 92vw; }
+  .search input {
+    width:100%; padding:8px 10px; border-radius:6px; border:1px solid #ddd;
+    font: inherit;
+  }
+
+  /* Right-side panel (Layers Control + Cluster Toggle) */
+  .right-controls { top:10px; right:10px; }
+  .leaflet-control-layers {
+      /* Ensure the control box is styled similarly */
+      box-shadow: 0 4px 18px rgba(0,0,0,.18);
+      border-radius: 8px;
+  }
+  .leaflet-control-layers-expanded { max-height: 300px; overflow:auto; padding: 6px; }
+
+  /* Cluster Toggle Pill inside the Layers control */
+  .cluster-toggle {
+    margin-top: 5px;
+    padding-top: 5px;
+    border-top: 1px solid #eee;
+  }
+  .cluster-toggle label {
+    display:flex; align-items:center; gap:6px; font-size:13px;
+    user-select: none;
+    cursor:pointer;
+  }
+  .cluster-toggle input { transform: translateY(1px); }
+
+
+  /* Legend (bottom-left) */
+  .legend { bottom:12px; left:12px; max-width: 44vw; }
+  .legend .row { display:flex; align-items:center; gap:8px; margin-top:6px; flex-wrap:wrap; }
+  .legend .swatch {
+    display:inline-block; width:14px; height:14px; border-radius:50%;
+    border:1px solid rgba(0,0,0,.2);
+  }
+  .legend .cat { 
+    pointer-events:auto; 
+    cursor:pointer; 
+    padding:3px 8px; 
+    border-radius:6px; 
+    border:1px solid #eee; 
+    margin:3px 6px 0 0;
+    display:flex;
+    align-items:center;
+    gap:4px;
+    transition: opacity 0.2s ease-in-out;
+  }
+  .legend .cat:hover { opacity:0.8 !important; }
+  .legend .cat.active { outline:2px solid rgba(0,0,0,.15); }
+  .legend small { color:#555; display:block; margin-top:6px; }
+  .legend .key { display:flex; gap:10px; margin-top:8px; align-items:center; flex-wrap:wrap; }
+
+  /* NZDF triangle icon via inline SVG class tweaks */
+  .nzdf-icon svg { overflow: visible; }
+  .nzdf-icon .halo { stroke: #fff; stroke-width: 2.5; fill: none; }
+  .nzdf-icon .fill { fill: #6B42C1; stroke: #4B2E8C; stroke-width: 1.25; }
+
+  /* Cluster colors kept subtle so category color swatches dominate */
+  .marker-cluster-small { background: rgba(80,80,80,.2); }
+  .marker-cluster-medium { background: rgba(80,80,80,.25); }
+  .marker-cluster-large { background: rgba(80,80,80,.3); }
+  .marker-cluster div { color:#111; }
+
+  /* Popup list */
+  .popup h3 { margin: 0 0 6px 0; font-size: 1rem; }
+  .popup ul { margin: 6px 0; padding-left: 18px; }
+  .popup li { margin: 3px 0; }
+  .popup a { color: #0645ad; text-decoration: none; }
+  .popup a:hover { text-decoration: underline; }
+
+  /* Screen-reader only helper */
+  .sr-only {
+    position: absolute !important;
+    height: 1px; width: 1px;
+    overflow: hidden; clip: rect(1px, 1px, 1px, 1px);
+    white-space: nowrap; border: 0; padding: 0; margin: -1px;
+  }
+
+  /* Status banner (top-left under search) */
+  .status { top: 60px; left: 10px; min-width: 160px; }
+  .status .control-box { padding: 6px 8px; }
+
+
+  .legend .cat { background:white; }
+  .legend .cat { -webkit-appearance:none; appearance:none; border:1px solid #eee; }
+
+</style>
+</head>
+<body>
+<div id="map"></div>
+
+<div class="ui search">
+  <div class="control-box">
+    <input id="searchBox" placeholder="Search company/capability/city…" aria-label="Search" />
+  </div>
+</div>
+
+<div class="ui status"><div class="control-box"><span id="status"></span></div></div>
+<div id="resultCount" class="sr-only" aria-live="polite"></div>
+
+<div class="ui legend">
+  <div class="control-box" id="legendBox">
+    <b>NZ Defence-Industry & NZDF Map</b>
+    <div class="row" id="legendCats"></div>
+    <div class="key">
+      <span class="swatch" style="background:#999"></span> Companies (click to filter)
+      <div class="nzdf-icon" style="height:18px; width:18px;">
+        <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">
+          <polygon class="halo" points="9,1.5 17,16.5 1,16.5"></polygon>
+          <polygon class="fill" points="9,1.5 17,16.5 1,16.5"></polygon>
+        </svg>
+      </div>
+      <span style="margin-left:-6px;">NZDF facility</span>
+    </div>
+    <small>Markers show company/NZDF locations. Category chips toggle company visibility (NZDF always visible).</small>
+  </div>
+</div>
+
+<script>
+(async function() {
+  // ---------------------------
+  // CONFIG
+  // ---------------------------
+  // NOTE: These URLs are sourced directly from NZ_mil - README.csv and should be definitive.
+  const COMPANIES_CSV = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRInRJ-k6PPnkTvP0dwO_Rh0WH5CqIgfSYF1zT5KBXY2Scd0ARkHMusJ_LvhxixaRWhqpvS5pFQqBTv/pub?gid=0&single=true&output=csv";
+  const NZDF_CSV      = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRInRJ-k6PPnkTvP0dwO_Rh0WH5CqIgfSYF1zT5KBXY2Scd0ARkHMusJ_LvhxixaRWhqpvS5pFQqBTv/pub?gid=1995910133&single=true&output=csv";
+
+  // New 9-Category Schema Mapping (from NZ_mil - category_explainer.csv)
+  const CATEGORY_MAP = {
+    'Naval sustainment': 'Maritime Sustainment & Systems',
+    'Naval sustainment & marine engineering': 'Maritime Sustainment & Systems',
+    'Marine engineering': 'Maritime Sustainment & Systems',
+    'Marine propulsion': 'Maritime Sustainment & Systems',
+    'Boatbuilding': 'Maritime Sustainment & Systems',
+    'Maritime electronics & sonar': 'Maritime Sustainment & Systems',
+    'Survival & life-saving equipment': 'Maritime Sustainment & Systems',
+
+    'Aerospace/space': 'Aerospace & Space',
+    'Drones / HAPS': 'Aerospace & Space',
+    'Drones / UAS': 'Aerospace & Space',
+
+    'Land Systems': 'Land Systems & Equipment',
+    'Land systems (load-bearing gear)': 'Land Systems & Equipment',
+    'Land systems (PPE/helmets)': 'Land Systems & Equipment',
+    'Land systems (precision components)': 'Land Systems & Equipment',
+    'Land systems (small arms)': 'Land Systems & Equipment',
+
+    'Comms & radios': 'Command, Control & Comms (C4ISR)',
+    'Cables & interconnect': 'Command, Control & Comms (C4ISR)',
+
+    'Optics': 'Sensors & Optics',
+    'Optics / photonics': 'Sensors & Optics',
+    'Optics / photonics (test)': 'Sensors & Optics',
+
+    'Composites': 'Advanced Materials & Manufacturing', 
+    'Composites (defence/aero)': 'Advanced Materials & Manufacturing',
+    'Composites (security glass)': 'Advanced Materials & Manufacturing',
+
+    'Munitions': 'Munitions & Ordnance',
+
+    'Simulation/training': 'Training & Simulation',
+    'Security systems': 'Training & Simulation',
+
+    'Other': 'Other / General'
+  };
+
+  // Final 9-Category Color Scheme (as defined in previous steps)
+  const COLOR_SCHEME = {
+    'Maritime Sustainment & Systems': '#004c99',      // Dark Navy Blue
+    'Aerospace & Space': '#00aaff',                   // Sky Blue/Cyan
+    'Land Systems & Equipment': '#6b8e23',            // Olive Green
+    'Command, Control & Comms (C4ISR)': '#6a0dad',    // Vibrant Purple
+    'Sensors & Optics': '#ffcc00',                    // Bright Yellow
+    'Advanced Materials & Manufacturing': '#b87333',  // Rust/Copper
+    'Munitions & Ordnance': '#cc0000',                // Bright Red
+    'Training & Simulation': '#008080',               // Soft Teal
+    'Other / General': '#808080'                      // Neutral Grey
+  };
+
+
+  // ---------------------------
+  // MAP INITIALIZATION
+  // ---------------------------
+  const map = L.map('map', {
+    center: [-41.2, 173.0],
+    zoom: 5,
+    zoomControl: false, // we'll place it bottom-right
+    preferCanvas: true
+  });
+
+  // Base layers
+  const osmStd = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19, attribution: '&copy; OpenStreetMap contributors'
+  }).addTo(map);
+
+  const esriSatellite = L.tileLayer(
+    'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+    {
+      attribution: 'Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community'
+    }
+  );
+
+  // Overlays (Rail added, Seamarks/Rail off by default)
+  const railOverlay = L.tileLayer('https://c.tiles.openrailwaymap.org/standard/{z}/{x}/{y}.png', {
+    maxZoom: 19, opacity: 0.6, attribution: 'Map data: &copy; <a href="https://www.openrailwaymap.org">OpenRailwayMap</a> | Map style: &copy; <a href="https://www.openmaptiles.org/">OpenMapTiles</a>', zIndex: 450
+  });
+  
+  const seamarkOverlay = L.tileLayer('https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png', {
+    maxZoom: 18, opacity: 0.7, attribution: '© OpenSeaMap contributors', zIndex: 451
+  });
+
+  // Layers control
+  const baseMaps = {
+    "OpenStreetMap (default)": osmStd,
+    "Esri World Imagery (Satellite)": esriSatellite
+  };
+  // Default layers are OFF, so we don't add them to the map initially.
+  const overlayMaps = {
+    "Rail Network (OpenRailMap)": railOverlay, 
+    "Seamarks (OpenSeaMap)": seamarkOverlay
+  };
+
+  // Custom control to hold the cluster toggle and layer control
+  const layersCtrl = L.control.layers(baseMaps, overlayMaps, { collapsed: false, autoZIndex: false });
+
+const CustomLayerControl = L.Control.extend({
+      onAdd: function(map) {
+          const container = L.DomUtil.create('div', 'leaflet-control-layers leaflet-control-layers-expanded right-controls');
+          container.setAttribute('aria-expanded', 'true');
+          container.style.padding = '6px';
+
+          // 1. Cluster Toggle (Default OFF - unchecked)
+          const clusterDiv = L.DomUtil.create('div', 'cluster-toggle', container);
+          clusterDiv.innerHTML = '<label><input type="checkbox" id="toggleCluster" /> Cluster Companies</label>';
+
+          // 2. Base/Overlay Maps (embed official control safely)
+layersCtrl.addTo(map);
+container.appendChild(layersCtrl.getContainer());
+
+    // 3. Optional: Reload data button (safe manual refresh)
+    const reloadBtn = L.DomUtil.create('button','btn-reload', container);
+    reloadBtn.type = 'button'; reloadBtn.textContent = 'Reload data';
+    L.DomEvent.on(reloadBtn, 'click', (e)=>{ L.DomEvent.stop(e); location.reload(); });
+
+// Stop propagation for drag/scroll events on the control box
+          L.DomEvent.disableClickPropagation(container);
+          L.DomEvent.disableScrollPropagation(container);
+
+          return container;
+      },
+      onRemove: function(map) { /* Nothing to do */ }
+  });
+
+  new CustomLayerControl({ position: 'topright' }).addTo(map);
+
+  // Move zoom control to bottom-right
+  L.control.zoom({ position:'bottomright' }).addTo(map);
+
+  // Scale control for context
+  L.control.scale({ position:'bottomright' }).addTo(map);
+
+  // Custom panes for marker z-index
+  map.createPane('paneCompanies'); map.getPane('paneCompanies').style.zIndex = 460;
+  map.createPane('paneNZDF');      map.getPane('paneNZDF').style.zIndex = 470;
+
+  // ---------------------------
+  // ICONS
+  // ---------------------------
+  function circleIcon(hex, size=8) { // Smaller size for cleaner look
+    return L.divIcon({
+      className: 'company-icon',
+      html: `<div style="width:${size*2}px;height:${size*2}px;border-radius:50%;background:${hex};border:2px solid #fff;box-shadow:0 0 0 1px rgba(0,0,0,.2)"></div>`,
+      iconSize: [size*2, size*2],
+      iconAnchor: [size, size]
+    });
+  }
+
+  function nzdfTriangleIcon(size=16) { // Smaller size
+    const w = size, h = size;
+    const halfW = w/2, pad = 1;
+    // Calculate points for an inverted triangle (base up)
+    const pts = `${halfW},${pad} ${w-pad},${h-pad} ${pad},${h-pad}`;
+    return L.divIcon({
+      className: 'nzdf-icon',
+      html: `
+        <svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" aria-hidden="true">
+          <polygon class="halo" points="${pts}"></polygon>
+          <polygon class="fill" points="${pts}"></polygon>
+        </svg>
+      `,
+      iconSize: [w, h],
+      iconAnchor: [halfW, h - 2]
+    });
+  }
+
+
+  // ---------------------------
+// STATUS HELPERS
+// ---------------------------
+function setLoading(on){
+  const el = document.getElementById('status');
+  if (!el) return;
+  el.textContent = on ? 'Loading…' : '';
+}
+
+function setError(msg){
+  const el = document.getElementById('status');
+  if (!el) return;
+  el.innerHTML = `${msg} <button type="button" id="retryBtn">Retry</button>`;
+  const r = document.getElementById('retryBtn');
+  if (r) r.onclick = () => location.reload();
+}
+
+function announceCount(n){
+  const el = document.getElementById('resultCount');
+  if (el) el.textContent = `Showing ${n} companies`;
+}
+
+// ---------------------------
+  // DATA LOAD & MAPPING
+  // ---------------------------
+  async function fetchCSV(url) {
+    return new Promise((resolve,reject) => {
+      const cacheBust = url + (url.includes('?') ? '&' : '?') + 'cb=' + Date.now();
+      Papa.parse(cacheBust, {
+        header: true,
+        download: true,
+        skipEmptyLines: 'greedy',
+        transform: v => (typeof v === 'string' ? v.trim() : v),
+        complete: results => resolve(results.data),
+        error: err => reject(err)
+      });
+    });
+  }
+
+  setLoading(true);
+  const [companies, nzdf] = await Promise.all([
+    fetchCSV(COMPANIES_CSV),
+    fetchCSV(NZDF_CSV)
+  ]).catch(err => {
+    console.error("Failed to load CSV data from Google Sheets links:", err);
+    // Alert the user if data load fails
+    setError("Map data failed to load. Please check the public CSV links are correct.");
+    return [[], []]; // Return empty arrays to allow map initialization to proceed
+  });
+  setLoading(false);
+
+
+  const normCompanies = companies.map(row => {
+const newCat = (row.new_category && row.new_category.trim())
+  || (CATEGORY_MAP[(row.category || '').trim()] || 'Other / General');
+
+    return {
+      id: (row.id || '').trim(), city: (row.city || '').trim(), company: (row.company || '').trim(),
+      capability: (row.capability || '').trim(), website: (row.website || '').trim(),
+      category: newCat, // Use the NEW, simplified category
+      notes: (row.notes || '').trim(),
+      lat: toNum(row.lat), lng: toNum(row.lng)
+    }
+  }).filter(r => isFinite(r.lat) && isFinite(r.lng));
+
+
+  const normNZDF = nzdf.map(row => ({
+    city: (row.city || '').trim(), facility: (row.facility || '').trim(),
+    branch: (row.operating_agency || '').trim(), unit: (row.primary_function || '').trim(),
+    address: (row.address || '').trim(), website: (row.website || '').trim(),
+    category: 'NZDF', // Hardcoded category for NZDF
+    notes: (row.notes || '').trim(), lat: toNum(row.lat), lng: toNum(row.lng)
+  })).filter(r => isFinite(r.lat) && isFinite(r.lng));
+
+  function toNum(v){ const n = Number(v); return isFinite(n) ? n : NaN; }
+
+  const categories = Object.keys(COLOR_SCHEME).sort((a,b)=>a.localeCompare(b));
+  const categoryColors = COLOR_SCHEME;
+
+
+  // ---------------------------
+  // LAYERS: companies + NZDF
+  // ---------------------------
+  const companiesLayerRaw = L.layerGroup([], { pane:'paneCompanies' });
+  let clusterGroup = L.markerClusterGroup({ chunkedLoading:true, maxClusterRadius:40 });
+
+  const companyMarkers = normCompanies.map(d => {
+    const color = categoryColors[d.category];
+    const marker = L.marker([d.lat, d.lng], { icon: circleIcon(color, 8) }); 
+    marker.feature = { properties: d };
+    marker.bindPopup(companyPopup(d));
+    return marker;
+  });
+
+  // Default: NO CLUSTER. Add markers to raw layer.
+  companyMarkers.forEach(m => companiesLayerRaw.addLayer(m));
+  companiesLayerRaw.addTo(map);
+  announceCount(companyMarkers.length);
+
+  const nzdfLayer = L.layerGroup([], { pane:'paneNZDF' }).addTo(map);
+  normNZDF.forEach(d => {
+    const m = L.marker([d.lat, d.lng], { icon: nzdfTriangleIcon(16) });
+    m.feature = { properties: d };
+    m.bindPopup(nzdfPopup(d));
+    nzdfLayer.addLayer(m);
+  });
+
+  // ---------------------------
+  // FILTERING (legend + search)
+  // ---------------------------
+  let activeCats = new Set(categories);
+  const searchInput = document.getElementById('searchBox');
+  let searchTerm = '';
+
+  function companyMatches(d) {
+    const t = searchTerm;
+    if (!t) return true;
+    const hay = (d.company + ' ' + d.capability + ' ' + d.city + ' ' + d.id).toLocaleLowerCase('en-NZ');
+    return hay.includes(t);
+  }
+
+  function debounce(fn, ms=200){ let t; return (...a)=>{ clearTimeout(t); t=setTimeout(()=>fn(...a), ms); }; }
+
+  function applyFilters() {
+    const filteredMarkers = companyMarkers.filter(m => {
+      const d = m.feature.properties;
+      return activeCats.has(d.category) && companyMatches(d);
+    });
+
+    if (isClusterOn()) {
+      // Transition to clustered view
+      if(map.hasLayer(companiesLayerRaw)) map.removeLayer(companiesLayerRaw);
+      clusterGroup.clearLayers();
+      filteredMarkers.forEach(m => clusterGroup.addLayer(m));
+      if (!map.hasLayer(clusterGroup)) map.addLayer(clusterGroup);
+      announceCount(filteredMarkers.length);
+    } else {
+      // Transition to raw view
+      if(map.hasLayer(clusterGroup)) map.removeLayer(clusterGroup);
+      companiesLayerRaw.clearLayers();
+      filteredMarkers.forEach(m => companiesLayerRaw.addLayer(m));
+      if (!map.hasLayer(companiesLayerRaw)) map.addLayer(companiesLayerRaw);
+    }
+  }
+
+  searchInput.addEventListener('input', (e) => {
+    searchTerm = (e.target.value || '').trim().toLocaleLowerCase('en-NZ');
+    debouncedApply();
+  });
+
+  // Legend category chips 
+  const debouncedApply = debounce(applyFilters, 200);
+
+  const legendCats = document.getElementById('legendCats');
+  function renderLegend() {
+    legendCats.innerHTML = '';
+    categories.forEach(cat => {
+      const chip = document.createElement('button');
+      chip.type = 'button';
+      chip.setAttribute('aria-pressed','true');
+      chip.className = 'cat active';
+      chip.style.backgroundColor = 'white';
+      chip.style.borderColor = categoryColors[cat]; // Highlight border with category colour
+      chip.innerHTML = `<span class="swatch" style="background:${categoryColors[cat]}"></span>${cat}`;
+      chip.addEventListener('click', () => {
+        if (activeCats.has(cat)) { activeCats.delete(cat); chip.classList.remove('active'); chip.style.opacity = .4; chip.setAttribute('aria-pressed','false'); }
+        else { activeCats.add(cat); chip.classList.add('active'); chip.style.opacity = 1; chip.setAttribute('aria-pressed','true'); }
+        applyFilters();
+      });
+      chip.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); chip.click(); } });
+      legendCats.appendChild(chip);
+    });
+  }
+  renderLegend();
+
+  // ---------------------------
+  // TOGGLES: cluster
+  // ---------------------------
+  const toggleCluster = document.getElementById('toggleCluster');
+  
+  toggleCluster.addEventListener('change', () => {
+    if (toggleCluster.checked) {
+      // Move markers into cluster layer
+      map.removeLayer(companiesLayerRaw);
+      map.addLayer(clusterGroup);
+      applyFilters(); // Re-apply filter to clustered layer
+    } else {
+      // Move markers into raw layer
+      map.removeLayer(clusterGroup);
+      map.addLayer(companiesLayerRaw);
+      applyFilters(); // Re-apply filter to raw layer
+      announceCount(filteredMarkers.length);
+    }
+  });
+
+  function isClusterOn(){ return toggleCluster.checked; }
+
+
+  // ---------------------------
+  // URL SAFETY
+  // ---------------------------
+  function safeHref(u){ try{ const url=new URL(u, location.href); return /^(https?:)$/.test(url.protocol) ? url.href : null; } catch { return null; } }
+
+  // ---------------------------
+  // POPUPS 
+  // ---------------------------
+  function companyPopup(d) {
+    const safe = safeHref(d.website);
+    const web = safe ? `<a href="${safe}" target="_blank" rel="noopener noreferrer">Website</a>` : '';
+    const note = d.notes ? `<div style="margin-top:6px;color:#555">${escapeHtml(d.notes)}</div>` : '';
+    return `
+      <div class="popup">
+        <h3>${escapeHtml(d.company)}</h3>
+        <div><b>Category:</b> ${escapeHtml(d.category)}</div>
+        <div><b>Capability:</b> ${escapeHtml(d.capability || '—')}</div>
+        <div><b>ID:</b> ${escapeHtml(d.id || '—')}</div>
+        <div><b>City:</b> ${escapeHtml(d.city || '—')}</div>
+        ${web}
+        ${note}
+      </div>
+    `;
+  }
+  function nzdfPopup(d) {
+    const safe = safeHref(d.website);
+    const web = safe ? `<a href="${safe}" target="_blank" rel="noopener noreferrer">Website</a>` : '';
+    const unit = d.unit ? `<div><b>Function:</b> ${escapeHtml(d.unit)}</div>` : '';
+    const note = d.notes ? `<div style="margin-top:6px;color:#555">${escapeHtml(d.notes)}</div>` : '';
+    return `
+      <div class="popup">
+        <h3>${escapeHtml(d.facility)}</h3>
+        ${d.branch ? `<div><b>Agency:</b> ${escapeHtml(d.branch)}</div>`:''}
+        ${unit}
+        <div><b>City:</b> ${escapeHtml(d.city || '—')}</div>
+        <div><b>Address:</b> ${escapeHtml(d.address || '—')}</div>
+        ${web}
+        ${note}
+      </div>
+    `;
+  }
+
+  function escapeHtml(s){ return String(s).replace(/[&<>"']/g, m=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[m])); }
+
+  // ---------------------------
+  // INIT: Fit map to bounds
+  // ---------------------------
+  const allPts = [...normCompanies, ...normNZDF];
+  if (allPts.length) {
+    const b = L.latLngBounds(allPts.map(d => [d.lat, d.lng]));
+    map.fitBounds(b.pad(0.15));
+  }
+})();
+</script>
+
+</body>
+</html>
