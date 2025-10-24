@@ -29,7 +29,8 @@ Static hosting is on **Google Cloud Storage (GCS)** under the existing *web‑vi
 ## Live URLs
 
 - **Public page v1:** [https://storage.googleapis.com/web-visualisations/NZ_mil/nz_defence_industry_sheets_map.html](https://storage.googleapis.com/web-visualisations/NZ_mil/nz_defence_industry_sheets_map.html)
-- **Public page v3:** [https://storage.googleapis.com/web-visualisations/NZ_mil/nz_defence_industry_sheets_map.html](https://storage.googleapis.com/web-visualisations/NZ_mil/nz_defence_industry_map_v3.html)  
+- **Public page v3:** [https://storage.googleapis.com/web-visualisations/NZ_mil/nz_defence_industry_sheets_map.html](https://storage.googleapis.com/web-visualisations/NZ_mil/nz_defence_industry_map_v3.html)
+- **Public page v4:** [https://storage.googleapis.com/web-visualisations/NZ_mil/nz_defence_industry_sheets_map.html](https://storage.googleapis.com/web-visualisations/NZ_mil/nz_defence_industry_map_v4.html)  
 - **Google Sheet (view‑only):** [https://docs.google.com/spreadsheets/d/1XI7fWf5Xc9EshogItq-P6XREqbZr2EGM0W8PYppG5DQ/edit?usp=sharing](https://docs.google.com/spreadsheets/d/1XI7fWf5Xc9EshogItq-P6XREqbZr2EGM0W8PYppG5DQ/edit?usp=sharing)  
 - **CSV export URL used by the page:** [https://docs.google.com/spreadsheets/d/e/2PACX-1vRInRJ-k6PPnkTvP0dwO_Rh0WH5CqIgfSYF1zT5KBXY2Scd0ARkHMusJ_LvhxixaRWhqpvS5pFQqBTv/pub?gid=0&single=true&output=csv](https://docs.google.com/spreadsheets/d/e/2PACX-1vRInRJ-k6PPnkTvP0dwO_Rh0WH5CqIgfSYF1zT5KBXY2Scd0ARkHMusJ_LvhxixaRWhqpvS5pFQqBTv/pub?gid=0&single=true&output=csv)  
  
